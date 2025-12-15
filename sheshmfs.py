@@ -61,6 +61,10 @@ def fetch_stock_data(symbol, start_date, end_date):
             stock = yf.Ticker(ticker)
             df = stock.history(start=start_date, end=end_date)
         
+        # Remove timezone info from index
+        if not df.empty and hasattr(df.index, 'tz') and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        
         return df
     except Exception as e:
         st.error(f"Error fetching data for {symbol}: {str(e)}")
@@ -80,6 +84,11 @@ def fetch_index_data(index_name, start_date, end_date):
     try:
         index = yf.Ticker(ticker)
         df = index.history(start=start_date, end=end_date)
+        
+        # Remove timezone info from index
+        if not df.empty and hasattr(df.index, 'tz') and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+        
         return df
     except Exception as e:
         st.error(f"Error fetching index data: {str(e)}")
@@ -147,6 +156,10 @@ def fetch_mf_nav(amfi_code, start_date, end_date):
                     nav_df['nav'] = pd.to_numeric(nav_df['nav'], errors='coerce')
                     nav_df = nav_df.sort_values('date')
                     
+                    # Remove timezone info if present
+                    if hasattr(nav_df['date'], 'dt'):
+                        nav_df['date'] = pd.to_datetime(nav_df['date']).dt.tz_localize(None)
+                    
                     # Filter by date range
                     mask = (nav_df['date'] >= pd.to_datetime(start_date)) & (nav_df['date'] <= pd.to_datetime(end_date))
                     nav_df = nav_df[mask]
@@ -169,6 +182,10 @@ def fetch_mf_nav(amfi_code, start_date, end_date):
             try:
                 nav_float = float(nav_value)
                 date_obj = pd.to_datetime(nav_date, format='%d-%b-%Y')
+                # Remove timezone info
+                if hasattr(date_obj, 'tz') and date_obj.tz is not None:
+                    date_obj = date_obj.tz_localize(None)
+                    
                 nav_df = pd.DataFrame({
                     'nav': [nav_float],
                     'date': [date_obj]
@@ -196,6 +213,9 @@ def fetch_mf_nav(amfi_code, start_date, end_date):
 def calculate_returns(prices):
     """Calculate percentage returns from prices"""
     returns = prices.pct_change().dropna() * 100
+    # Remove timezone info if present
+    if hasattr(returns.index, 'tz') and returns.index.tz is not None:
+        returns.index = returns.index.tz_localize(None)
     return returns
 
 def calculate_beta(returns, benchmark_returns):
