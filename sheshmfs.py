@@ -203,25 +203,35 @@ def calculate_beta(returns, benchmark_returns):
     if len(returns) < 2 or len(benchmark_returns) < 2:
         return None, None, None
     
-    # Align the data
-    common_index = returns.index.intersection(benchmark_returns.index)
-    returns_aligned = returns.loc[common_index]
-    benchmark_aligned = benchmark_returns.loc[common_index]
+    # Convert both to dataframes for easier alignment
+    returns_df = pd.DataFrame({'returns': returns})
+    benchmark_df = pd.DataFrame({'benchmark': benchmark_returns})
     
-    if len(returns_aligned) < 2:
+    # Merge on date index with outer join to see all dates
+    merged = returns_df.join(benchmark_df, how='inner')
+    
+    # Drop NaN values
+    merged = merged.dropna()
+    
+    if len(merged) < 10:  # Need at least 10 data points
+        st.warning(f"⚠️ Only {len(merged)} overlapping data points found. Need at least 10 for reliable beta calculation.")
         return None, None, None
     
     # Linear regression
-    slope, intercept, r_value, p_value, std_err = stats.linregress(
-        benchmark_aligned.values, 
-        returns_aligned.values
-    )
-    
-    beta = slope
-    r_squared = r_value ** 2
-    correlation = r_value
-    
-    return beta, r_squared, correlation
+    try:
+        slope, intercept, r_value, p_value, std_err = stats.linregress(
+            merged['benchmark'].values, 
+            merged['returns'].values
+        )
+        
+        beta = slope
+        r_squared = r_value ** 2
+        correlation = r_value
+        
+        return beta, r_squared, correlation
+    except Exception as e:
+        st.error(f"Error in regression: {str(e)}")
+        return None, None, None
 
 def plot_returns_comparison(df, portfolio_col, benchmark_col):
     """Plot portfolio vs benchmark returns"""
@@ -591,18 +601,46 @@ with tab2:
                             nav_returns = calculate_returns(nav_df['nav'])
                             benchmark_returns = calculate_returns(benchmark_df['Close'])
                             
+                            # Debug information
+                            st.info(f"""
+                            📊 **Data Info:**
+                            - NAV data points: {len(nav_df)}
+                            - NAV date range: {nav_df.index.min().strftime('%Y-%m-%d')} to {nav_df.index.max().strftime('%Y-%m-%d')}
+                            - Benchmark data points: {len(benchmark_df)}
+                            - Benchmark date range: {benchmark_df.index.min().strftime('%Y-%m-%d')} to {benchmark_df.index.max().strftime('%Y-%m-%d')}
+                            """)
+                            
+                            # Resample both to monthly frequency for better alignment
+                            nav_monthly = nav_df['nav'].resample('M').last()
+                            benchmark_monthly = benchmark_df['Close'].resample('M').last()
+                            
+                            # Calculate monthly returns
+                            nav_returns_monthly = calculate_returns(nav_monthly)
+                            benchmark_returns_monthly = calculate_returns(benchmark_monthly)
+                            
+                            st.info(f"""
+                            📊 **Monthly Resampled Data:**
+                            - NAV monthly points: {len(nav_returns_monthly)}
+                            - Benchmark monthly points: {len(benchmark_returns_monthly)}
+                            """)
+                            
                             # Calculate beta
-                            beta, r_squared, correlation = calculate_beta(nav_returns, benchmark_returns)
+                            beta, r_squared, correlation = calculate_beta(nav_returns_monthly, benchmark_returns_monthly)
                             
                             if beta is None:
                                 st.error("❌ Could not calculate beta. Insufficient data overlap.")
-                                st.info(f"NAV data points: {len(nav_df)}, Benchmark data points: {len(benchmark_df)}")
+                                st.info(f"""
+                                **Troubleshooting:**
+                                - Try selecting a different time period
+                                - Ensure the fund has sufficient historical data
+                                - The fund might be new or have limited data
+                                """)
                             else:
-                                # Additional metrics
-                                mean_return = nav_returns.mean() * 252  # Annualized
-                                mean_bench = benchmark_returns.mean() * 252
+                                # Additional metrics - use monthly returns for consistency
+                                mean_return = nav_returns_monthly.mean() * 12  # Annualized
+                                mean_bench = benchmark_returns_monthly.mean() * 12
                                 alpha = mean_return - (beta * mean_bench)
-                                volatility = nav_returns.std() * np.sqrt(252)
+                                volatility = nav_returns_monthly.std() * np.sqrt(12)
                                 sharpe_ratio = (mean_return - 5) / volatility if volatility > 0 else 0
                                 
                                 # Display metrics
@@ -628,10 +666,13 @@ with tab2:
                                     st.warning("🔴 **High Risk Fund**\n\nThis fund is more volatile than the benchmark, suitable for aggressive investors.")
                                 
                                 # Create combined dataframe for plotting
+                                # Merge the monthly data for plotting
                                 plot_df = pd.DataFrame({
-                                    'NAV_Return': nav_returns,
-                                    'Benchmark_Return': benchmark_returns
+                                    'NAV_Return': nav_returns_monthly,
+                                    'Benchmark_Return': benchmark_returns_monthly
                                 }).dropna()
+                                
+                                st.success(f"✅ Successfully calculated beta using {len(plot_df)} monthly data points")
                                 
                                 # Charts
                                 col1, col2 = st.columns(2)
@@ -663,9 +704,43 @@ with tab2:
                                     )
                                     st.plotly_chart(fig_reg, use_container_width=True)
                                 
-                                # Returns comparison
-                                fig_returns = plot_returns_comparison(plot_df, 'NAV_Return', 'Benchmark_Return')
-                                st.plotly_chart(fig_returns, use_container_width=True)
+                                # Returns comparison - use daily NAV data for visualization
+                                fig_returns = go.Figure()
+                                
+                                # Use cumulative returns for better visualization
+                                nav_cumulative = (1 + nav_returns).cumprod() - 1
+                                bench_cumulative = (1 + benchmark_returns).cumprod() - 1
+                                
+                                # Align dates
+                                common_dates = nav_cumulative.index.intersection(bench_cumulative.index)
+                                if len(common_dates) > 0:
+                                    fig_returns.add_trace(go.Scatter(
+                                        x=common_dates,
+                                        y=nav_cumulative.loc[common_dates] * 100,
+                                        mode='lines',
+                                        name='Fund',
+                                        line=dict(color='#4F46E5', width=2)
+                                    ))
+                                    
+                                    fig_returns.add_trace(go.Scatter(
+                                        x=common_dates,
+                                        y=bench_cumulative.loc[common_dates] * 100,
+                                        mode='lines',
+                                        name='Benchmark',
+                                        line=dict(color='#10B981', width=2)
+                                    ))
+                                    
+                                    fig_returns.update_layout(
+                                        title="Cumulative Returns Comparison",
+                                        xaxis_title="Date",
+                                        yaxis_title="Cumulative Return (%)",
+                                        hovermode='x unified',
+                                        template='plotly_white',
+                                        height=400
+                                    )
+                                    st.plotly_chart(fig_returns, use_container_width=True)
+                                else:
+                                    st.warning("Could not create returns comparison chart due to date mismatch")
                                 
                                 # Data summary
                                 st.subheader("📈 Data Summary")
