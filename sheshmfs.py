@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from scipy import stats
 import requests
 import yfinance as yf
+from io import StringIO
+import time
 
 # Page configuration
 st.set_page_config(
@@ -84,20 +86,112 @@ def fetch_index_data(index_name, start_date, end_date):
         return None
 
 def fetch_mf_nav(amfi_code, start_date, end_date):
-    """Fetch mutual fund NAV data from AMFI or MFCentral"""
+    """Fetch mutual fund NAV data from AMFI website"""
     try:
-        # This is a placeholder - you need to implement actual API integration
-        # Options:
-        # 1. MFCentral API (requires registration)
-        # 2. AMFI India website scraping
-        # 3. RapidAPI mutual fund APIs
-        # 4. BSE/NSE APIs for ETFs
+        # AMFI provides daily NAV data in a text file
+        url = "https://www.amfiindia.com/spages/NAVAll.txt"
         
-        st.warning("⚠️ Real-time MF data fetching requires API integration. Please see the About tab for setup instructions.")
-        return None
+        st.info(f"🔍 Fetching NAV data for AMFI code: {amfi_code}")
+        
+        # Fetch the NAV data file
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code != 200:
+            st.error(f"Failed to fetch AMFI data. Status code: {response.status_code}")
+            return None, None
+        
+        # Parse the text file
+        lines = response.text.strip().split('\n')
+        
+        scheme_found = False
+        scheme_name = None
+        nav_value = None
+        nav_date = None
+        
+        for line in lines:
+            # Skip empty lines and scheme house headers
+            if not line.strip() or line.startswith('Scheme Code'):
+                continue
+            
+            # Parse data lines
+            parts = line.split(';')
+            if len(parts) >= 5:
+                code = parts[0].strip()
+                if code == str(amfi_code):
+                    scheme_found = True
+                    scheme_name = parts[3].strip()
+                    nav_value = parts[4].strip()
+                    nav_date = parts[7].strip() if len(parts) > 7 else None
+                    break
+        
+        if not scheme_found:
+            st.error(f"❌ AMFI code {amfi_code} not found in the database.")
+            st.info("💡 Please verify the AMFI code at https://www.amfiindia.com/")
+            return None, None
+        
+        # Get historical NAV data using MFApi (alternative source)
+        hist_url = f"https://api.mfapi.in/mf/{amfi_code}"
+        
+        try:
+            hist_response = requests.get(hist_url, timeout=10)
+            if hist_response.status_code == 200:
+                hist_data = hist_response.json()
+                
+                if 'data' in hist_data:
+                    # Convert to dataframe
+                    nav_df = pd.DataFrame(hist_data['data'])
+                    nav_df['date'] = pd.to_datetime(nav_df['date'], format='%d-%m-%Y')
+                    nav_df['nav'] = pd.to_numeric(nav_df['nav'], errors='coerce')
+                    nav_df = nav_df.sort_values('date')
+                    
+                    # Filter by date range
+                    mask = (nav_df['date'] >= pd.to_datetime(start_date)) & (nav_df['date'] <= pd.to_datetime(end_date))
+                    nav_df = nav_df[mask]
+                    
+                    if not nav_df.empty:
+                        nav_df = nav_df.set_index('date')
+                        scheme_info = {
+                            'scheme_name': hist_data.get('meta', {}).get('scheme_name', scheme_name),
+                            'fund_house': hist_data.get('meta', {}).get('fund_house', 'N/A'),
+                            'scheme_type': hist_data.get('meta', {}).get('scheme_type', 'N/A'),
+                            'scheme_category': hist_data.get('meta', {}).get('scheme_category', 'N/A')
+                        }
+                        return nav_df, scheme_info
+        except Exception as e:
+            st.warning(f"Could not fetch historical data: {str(e)}")
+        
+        # If historical data fetch fails, create single point data
+        if nav_value and nav_date:
+            st.warning("⚠️ Only current NAV available. Historical data limited.")
+            try:
+                nav_float = float(nav_value)
+                date_obj = pd.to_datetime(nav_date, format='%d-%b-%Y')
+                nav_df = pd.DataFrame({
+                    'nav': [nav_float],
+                    'date': [date_obj]
+                }).set_index('date')
+                
+                scheme_info = {
+                    'scheme_name': scheme_name,
+                    'fund_house': 'N/A',
+                    'scheme_type': 'N/A',
+                    'scheme_category': 'N/A'
+                }
+                return nav_df, scheme_info
+            except:
+                pass
+        
+        return None, None
+        
+    except requests.Timeout:
+        st.error("⏱️ Request timed out. Please try again.")
+        return None, None
     except Exception as e:
-        st.error(f"Error fetching MF data: {str(e)}")
-        return None
+        st.error(f"❌ Error fetching MF data: {str(e)}")
+        return None, None
 
 def calculate_returns(prices):
     """Calculate percentage returns from prices"""
@@ -412,33 +506,180 @@ with tab1:
 with tab2:
     st.subheader("Mutual Fund Beta Analysis")
     
-    st.warning("""
-    ⚠️ **Real-time Mutual Fund Data Integration Required**
+    st.info("""
+    ✅ **Real AMFI Data Integration Active**
     
-    To fetch real mutual fund data, you need to integrate one of these services:
-    
-    1. **MFCentral API** (Recommended for Indian MFs)
-    2. **AMFI India Website** (Web scraping)
-    3. **RapidAPI Mutual Fund APIs** (Paid service)
-    4. **BSE/NSE APIs** (For ETFs)
-    
-    Please see the "About" tab for detailed setup instructions.
+    This tool now fetches real mutual fund data from:
+    - AMFI India (for current NAV)
+    - MF API (for historical NAV data)
     """)
     
     mf_scheme = st.text_input(
-        "Enter AMFI Code or Scheme Name",
-        placeholder="e.g., 147844 (SBI Blue Chip Fund)",
-        help="Enter the 6-digit AMFI code"
+        "Enter AMFI Code",
+        placeholder="e.g., 147844 (SBI Blue Chip Fund), 119551 (HDFC Top 100)",
+        help="Enter the 6-digit AMFI code. Find codes at amfiindia.com"
     )
     
     col1, col2 = st.columns(2)
     with col1:
         mf_benchmark = st.selectbox("Benchmark", ["NIFTY 50", "SENSEX", "NIFTY 500"], key="mf_bench")
     with col2:
-        mf_time = st.selectbox("Period", ["1 Year", "3 Years", "5 Years"], key="mf_time")
+        mf_time_options = ["1 Year", "3 Years", "5 Years", "Custom Date Range"]
+        mf_time = st.selectbox("Period", mf_time_options, key="mf_time")
     
-    if st.button("📈 Analyze Mutual Fund", type="primary"):
-        st.info("🔄 This feature requires API integration. See the About tab for setup instructions.")
+    # Custom date range for MF
+    if mf_time == "Custom Date Range":
+        col_date1, col_date2 = st.columns(2)
+        with col_date1:
+            mf_start_date = st.date_input(
+                "Start Date",
+                value=datetime.now() - timedelta(days=365),
+                max_value=datetime.now(),
+                key="mf_start"
+            )
+        with col_date2:
+            mf_end_date = st.date_input(
+                "End Date",
+                value=datetime.now(),
+                min_value=mf_start_date,
+                max_value=datetime.now(),
+                key="mf_end"
+            )
+        mf_custom = True
+    else:
+        months_map = {"1 Year": 12, "3 Years": 36, "5 Years": 60}
+        months = months_map.get(mf_time, 12)
+        mf_end_date = datetime.now()
+        mf_start_date = mf_end_date - timedelta(days=months*30)
+        mf_custom = False
+    
+    st.info(f"📅 **Analysis Period:** {mf_start_date.strftime('%b %d, %Y')} → {mf_end_date.strftime('%b %d, %Y')}")
+    
+    if st.button("📈 Analyze Mutual Fund", type="primary", use_container_width=True):
+        if not mf_scheme:
+            st.error("❌ Please enter an AMFI code!")
+        else:
+            with st.spinner("📊 Fetching mutual fund data from AMFI..."):
+                try:
+                    # Fetch MF NAV data
+                    nav_df, scheme_info = fetch_mf_nav(mf_scheme.strip(), mf_start_date, mf_end_date)
+                    
+                    if nav_df is None or nav_df.empty:
+                        st.error("❌ Could not fetch mutual fund data. Please verify the AMFI code.")
+                        st.info("💡 Common AMFI Codes:\n- 147844: SBI Blue Chip Fund\n- 119551: HDFC Top 100 Fund\n- 120503: ICICI Prudential Bluechip Fund")
+                    else:
+                        st.success(f"✅ Found scheme: **{scheme_info['scheme_name']}**")
+                        
+                        # Display scheme details
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Fund House", scheme_info['fund_house'])
+                        with col2:
+                            st.metric("Scheme Type", scheme_info['scheme_type'])
+                        with col3:
+                            st.metric("Category", scheme_info['scheme_category'])
+                        
+                        st.divider()
+                        
+                        # Fetch benchmark data
+                        benchmark_df = fetch_index_data(mf_benchmark, mf_start_date, mf_end_date)
+                        
+                        if benchmark_df is None or benchmark_df.empty:
+                            st.error("❌ Could not fetch benchmark data.")
+                        else:
+                            # Calculate returns
+                            nav_returns = calculate_returns(nav_df['nav'])
+                            benchmark_returns = calculate_returns(benchmark_df['Close'])
+                            
+                            # Calculate beta
+                            beta, r_squared, correlation = calculate_beta(nav_returns, benchmark_returns)
+                            
+                            if beta is None:
+                                st.error("❌ Could not calculate beta. Insufficient data overlap.")
+                                st.info(f"NAV data points: {len(nav_df)}, Benchmark data points: {len(benchmark_df)}")
+                            else:
+                                # Additional metrics
+                                mean_return = nav_returns.mean() * 252  # Annualized
+                                mean_bench = benchmark_returns.mean() * 252
+                                alpha = mean_return - (beta * mean_bench)
+                                volatility = nav_returns.std() * np.sqrt(252)
+                                sharpe_ratio = (mean_return - 5) / volatility if volatility > 0 else 0
+                                
+                                # Display metrics
+                                st.subheader("📊 Fund Performance Metrics")
+                                
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("Beta", f"{beta:.3f}")
+                                with col2:
+                                    st.metric("Alpha (%)", f"{alpha:.2f}",
+                                             delta="Positive" if alpha > 0 else "Negative")
+                                with col3:
+                                    st.metric("R² (%)", f"{r_squared*100:.2f}")
+                                with col4:
+                                    st.metric("Sharpe Ratio", f"{sharpe_ratio:.2f}")
+                                
+                                # Risk assessment
+                                if beta < 0.8:
+                                    st.success("🟢 **Low Risk Fund**\n\nThis fund is less volatile than the benchmark, suitable for conservative investors.")
+                                elif beta < 1.2:
+                                    st.info("🔵 **Moderate Risk Fund**\n\nThis fund moves in line with the benchmark.")
+                                else:
+                                    st.warning("🔴 **High Risk Fund**\n\nThis fund is more volatile than the benchmark, suitable for aggressive investors.")
+                                
+                                # Create combined dataframe for plotting
+                                plot_df = pd.DataFrame({
+                                    'NAV_Return': nav_returns,
+                                    'Benchmark_Return': benchmark_returns
+                                }).dropna()
+                                
+                                # Charts
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    # NAV trend chart
+                                    fig_nav = go.Figure()
+                                    fig_nav.add_trace(go.Scatter(
+                                        x=nav_df.index,
+                                        y=nav_df['nav'],
+                                        mode='lines',
+                                        name='NAV',
+                                        line=dict(color='#4F46E5', width=2)
+                                    ))
+                                    fig_nav.update_layout(
+                                        title="NAV Trend",
+                                        xaxis_title="Date",
+                                        yaxis_title="NAV",
+                                        template='plotly_white',
+                                        height=400
+                                    )
+                                    st.plotly_chart(fig_nav, use_container_width=True)
+                                
+                                with col2:
+                                    # Beta regression
+                                    fig_reg = plot_beta_regression(
+                                        plot_df['NAV_Return'].values,
+                                        plot_df['Benchmark_Return'].values
+                                    )
+                                    st.plotly_chart(fig_reg, use_container_width=True)
+                                
+                                # Returns comparison
+                                fig_returns = plot_returns_comparison(plot_df, 'NAV_Return', 'Benchmark_Return')
+                                st.plotly_chart(fig_returns, use_container_width=True)
+                                
+                                # Data summary
+                                st.subheader("📈 Data Summary")
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("Data Points", len(nav_df))
+                                with col2:
+                                    st.metric("Latest NAV", f"₹{nav_df['nav'].iloc[-1]:.2f}")
+                                with col3:
+                                    st.metric("Volatility (Annual)", f"{volatility*100:.2f}%")
+                
+                except Exception as e:
+                    st.error(f"❌ An error occurred: {str(e)}")
+                    st.info("💡 Please verify the AMFI code and try again.")
 
 # ===== ABOUT TAB =====
 with tab3:
@@ -447,57 +688,53 @@ with tab3:
     st.markdown("""
     ## 📈 Beta Calculator - Real Market Data Integration
     
-    This tool calculates portfolio and mutual fund beta using **real market data** from Yahoo Finance and other sources.
+    This tool calculates portfolio and mutual fund beta using **real market data**.
     
     ### ✅ What Works Now:
-    - **Portfolio Beta**: Fetches real stock prices from NSE/BSE via Yahoo Finance
-    - **Live market data** for Indian stocks
-    - **Real benchmark indices** (NIFTY 50, SENSEX, etc.)
-    - **Accurate beta calculations** using linear regression
     
-    ### 🔧 Mutual Fund Data Setup:
+    #### 1. Portfolio Beta
+    - Fetches **real stock prices** from NSE/BSE via Yahoo Finance
+    - Live market data for Indian stocks
+    - Real benchmark indices (NIFTY 50, SENSEX, etc.)
+    - Accurate beta calculations using linear regression
     
-    To enable real-time mutual fund data, you need to integrate an API:
+    #### 2. Mutual Fund Beta  
+    - Fetches **real NAV data** from AMFI India
+    - Uses **MF API** for historical NAV data
+    - Works with any valid AMFI code
+    - Real-time fund analysis
     
-    #### Option 1: MFCentral API (Recommended)
-    ```python
-    # Register at https://mfcentral.com/
-    # Get API credentials
-    # Add to your code:
+    ### 📝 Popular AMFI Codes:
     
-    import requests
+    **Large Cap Funds:**
+    - 147844 - SBI Blue Chip Fund
+    - 119551 - HDFC Top 100 Fund
+    - 120503 - ICICI Prudential Bluechip Fund
+    - 118989 - Axis Bluechip Fund
     
-    def fetch_mf_nav(amfi_code, start_date, end_date):
-        url = f"https://api.mfcentral.com/nav/{amfi_code}"
-        headers = {"Authorization": "Bearer YOUR_API_KEY"}
-        response = requests.get(url, headers=headers)
-        return response.json()
-    ```
+    **Mid Cap Funds:**
+    - 119617 - HDFC Mid-Cap Opportunities Fund
+    - 120465 - ICICI Prudential Midcap Fund
     
-    #### Option 2: AMFI Website Scraping
-    ```python
-    # Scrape from https://www.amfiindia.com/
-    # Note: Check terms of service before scraping
-    ```
-    
-    #### Option 3: RapidAPI
-    ```python
-    # Subscribe to MF APIs on RapidAPI
-    # https://rapidapi.com/search/mutual%20fund
-    ```
-    
-    ### 📦 Required Packages:
-    ```bash
-    pip install streamlit pandas numpy scipy plotly yfinance requests
-    ```
+    **Multi Cap Funds:**
+    - 119300 - HDFC Flexi Cap Fund
+    - 120594 - ICICI Prudential Multi-Asset Fund
     
     ### 🎯 How to Use:
     
-    1. **Portfolio Tab**: Enter Indian stock symbols (e.g., RELIANCE, TCS, INFY)
-    2. Select allocation percentages
+    #### Portfolio Analysis:
+    1. Enter Indian stock symbols (e.g., RELIANCE, TCS, INFY)
+    2. Set allocation percentages (total should not exceed 100%)
     3. Choose time period or custom date range
     4. Click "Calculate Portfolio Beta"
     5. View real-time analysis with charts
+    
+    #### Mutual Fund Analysis:
+    1. Enter the 6-digit AMFI code
+    2. Select benchmark index
+    3. Choose analysis period
+    4. Click "Analyze Mutual Fund"
+    5. Get comprehensive fund analysis
     
     ### 📊 Understanding Beta:
     - **Beta < 0.8**: Defensive (less volatile than market)
@@ -506,19 +743,47 @@ with tab3:
     
     ### 🔒 Data Sources:
     - **Stock Data**: Yahoo Finance (yfinance library)
-    - **Index Data**: Yahoo Finance
-    - **Mutual Fund**: Requires API integration (see above)
+    - **Index Data**: Yahoo Finance (NSE/BSE indices)
+    - **Mutual Fund NAV**: AMFI India + MF API
+    
+    ### 💡 Tips:
+    - Use proper NSE symbols (e.g., RELIANCE, not RELIANCE.NS)
+    - Verify AMFI codes at https://www.amfiindia.com/
+    - Longer time periods give more reliable beta values
+    - Custom date ranges help analyze specific market conditions
     
     ### ⚠️ Disclaimer:
     This tool is for educational and informational purposes only. Not financial advice.
     Always consult with a qualified financial advisor before making investment decisions.
+    
+    ### 🔧 Technical Details:
+    
+    **Beta Calculation:**
+    ```
+    Beta = Covariance(Portfolio Returns, Benchmark Returns) / Variance(Benchmark Returns)
+    ```
+    
+    **Alpha Calculation:**
+    ```
+    Alpha = Portfolio Return - (Beta × Benchmark Return)
+    ```
+    
+    **Sharpe Ratio:**
+    ```
+    Sharpe = (Portfolio Return - Risk Free Rate) / Portfolio Volatility
+    ```
+    
+    **Data Update Frequency:**
+    - Stock prices: Real-time (via Yahoo Finance)
+    - NAV data: Daily (updated by AMFI)
+    - Indices: Real-time (via Yahoo Finance)
     """)
 
 # Footer
 st.divider()
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <p><strong>Beta Calculator with Real Market Data</strong> | Powered by Yahoo Finance</p>
-    <p style='font-size: 0.8em;'>Stock data is real and updated daily. MF integration requires API setup.</p>
+    <p><strong>Beta Calculator with Real Market Data</strong> | Powered by Yahoo Finance & AMFI</p>
+    <p style='font-size: 0.8em;'>✅ All data is real and fetched from live sources</p>
 </div>
 """, unsafe_allow_html=True)
