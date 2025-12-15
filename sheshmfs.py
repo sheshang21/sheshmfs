@@ -165,12 +165,182 @@ def calculate_stock_beta_live(symbol, benchmark, period_days=365):
     except:
         return None
 
-def scrape_mf_holdings_moneycontrol(amfi_code):
-    """Get holdings data - requires manual input or actual scraping"""
+def scrape_holdings_from_groww(amfi_code):
+    """Scrape real-time holdings from Groww website"""
+    try:
+        import re
+        from bs4 import BeautifulSoup
+        
+        # Groww URL format
+        url = f"https://groww.in/mutual-funds/{amfi_code}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+        
+        st.info(f"🔍 Scraping holdings from Groww for AMFI {amfi_code}...")
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        if response.status_code != 200:
+            st.warning(f"⚠️ Could not access Groww (Status {response.status_code}). Using fallback data.")
+            return None
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Try to find holdings table
+        holdings_container = soup.find('div', {'class': 'holdings101TableContainer'})
+        
+        if not holdings_container:
+            # Try alternative selectors
+            holdings_container = soup.find('table', class_=re.compile('.*holding.*', re.I))
+        
+        if not holdings_container:
+            st.warning("⚠️ Could not find holdings table on Groww. Structure may have changed.")
+            return None
+        
+        holdings = []
+        
+        # Try to parse table rows
+        rows = holdings_container.find_all('tr')
+        
+        for row in rows[1:]:  # Skip header
+            cols = row.find_all('td')
+            if len(cols) >= 2:
+                try:
+                    # Extract stock name and allocation
+                    stock_name = cols[0].get_text(strip=True)
+                    allocation_text = cols[1].get_text(strip=True)
+                    
+                    # Extract percentage
+                    allocation = float(allocation_text.replace('%', '').strip())
+                    
+                    # Convert company name to ticker symbol (approximate)
+                    ticker = convert_company_name_to_ticker(stock_name)
+                    
+                    if ticker and allocation > 0:
+                        holdings.append((ticker, allocation))
+                    
+                except (ValueError, IndexError) as e:
+                    continue
+        
+        if holdings:
+            st.success(f"✅ Successfully scraped {len(holdings)} holdings from Groww!")
+            return {
+                'name': f'Fund {amfi_code}',
+                'holdings': holdings[:10],  # Top 10
+                'source': 'Groww (Live)'
+            }
+        
+        return None
+        
+    except Exception as e:
+        st.warning(f"⚠️ Error scraping Groww: {str(e)}")
+        return None
+
+def convert_company_name_to_ticker(company_name):
+    """Convert company name to NSE ticker symbol"""
+    # Common mappings
+    name_to_ticker = {
+        'HDFC Bank': 'HDFCBANK',
+        'HDFC': 'HDFCBANK',
+        'ICICI Bank': 'ICICIBANK',
+        'State Bank of India': 'SBIN',
+        'SBI': 'SBIN',
+        'Reliance Industries': 'RELIANCE',
+        'Reliance': 'RELIANCE',
+        'Infosys': 'INFY',
+        'TCS': 'TCS',
+        'Tata Consultancy Services': 'TCS',
+        'ITC': 'ITC',
+        'Bharti Airtel': 'BHARTIARTL',
+        'Airtel': 'BHARTIARTL',
+        'Kotak Mahindra Bank': 'KOTAKBANK',
+        'Kotak Bank': 'KOTAKBANK',
+        'Hindustan Unilever': 'HINDUNILVR',
+        'HUL': 'HINDUNILVR',
+        'Axis Bank': 'AXISBANK',
+        'Larsen & Toubro': 'LT',
+        'L&T': 'LT',
+        'Bajaj Finance': 'BAJFINANCE',
+        'Maruti Suzuki': 'MARUTI',
+        'Asian Paints': 'ASIANPAINT',
+        'Titan Company': 'TITAN',
+        'Wipro': 'WIPRO',
+        'HCL Technologies': 'HCLTECH',
+        'Tech Mahindra': 'TECHM',
+        'Sun Pharma': 'SUNPHARMA',
+        'Dr. Reddy': 'DRREDDY',
+        'Nestle India': 'NESTLEIND',
+        'UltraTech Cement': 'ULTRACEMCO',
+        'Power Grid': 'POWERGRID',
+        'NTPC': 'NTPC',
+        'Coal India': 'COALINDIA',
+        'Tata Steel': 'TATASTEEL',
+        'Tata Motors': 'TATAMOTORS',
+        'Mahindra & Mahindra': 'M&M',
+        'M&M': 'M&M',
+        'Adani Enterprises': 'ADANIENT',
+        'Adani Ports': 'ADANIPORTS',
+        'JSW Steel': 'JSWSTEEL',
+        'Bajaj Auto': 'BAJAJ-AUTO',
+        'Hero MotoCorp': 'HEROMOTOCO',
+        'Grasim Industries': 'GRASIM',
+        'Cipla': 'CIPLA',
+        'Divis Laboratories': 'DIVISLAB',
+        'Eicher Motors': 'EICHERMOT',
+        'SBI Life': 'SBILIFE',
+        'HDFC Life': 'HDFCLIFE',
+        'ICICI Prudential': 'ICICIPRULI',
+        'Bajaj Finserv': 'BAJAJFINSV',
+        'IndusInd Bank': 'INDUSINDBK',
+        'Tata Consumer': 'TATACONSUM',
+        'Britannia': 'BRITANNIA',
+        'Dabur': 'DABUR',
+        'Godrej Consumer': 'GODREJCP',
+        'Pidilite': 'PIDILITIND',
+        'Shree Cement': 'SHREECEM',
+        'Berger Paints': 'BERGEPAINT'
+    }
     
-    # Known holdings for popular funds (you need to update these manually from fund factsheets)
+    # Try exact match first
+    if company_name in name_to_ticker:
+        return name_to_ticker[company_name]
+    
+    # Try partial match
+    company_name_lower = company_name.lower()
+    for key, value in name_to_ticker.items():
+        if key.lower() in company_name_lower or company_name_lower in key.lower():
+            return value
+    
+    # Try to extract ticker-like pattern
+    # If company name has uppercase words, take first word
+    words = company_name.strip().split()
+    if words:
+        potential_ticker = words[0].upper()
+        if len(potential_ticker) >= 3:
+            return potential_ticker
+    
+    return None
+
+def scrape_mf_holdings_moneycontrol(amfi_code):
+    """Get holdings data - first try Groww, then fallback to static data"""
+    
+    # First, try scraping from Groww
+    groww_data = scrape_holdings_from_groww(amfi_code)
+    if groww_data:
+        return groww_data
+    
+    # Fallback to known holdings for popular funds
+    st.info("📋 Using factsheet data as fallback...")
+    
     known_holdings = {
-        '147844': {  # SBI Blue Chip Fund
+        '147844': {
             'name': 'SBI Blue Chip Fund',
             'holdings': [
                 ('RELIANCE', 8.5),
@@ -183,9 +353,10 @@ def scrape_mf_holdings_moneycontrol(amfi_code):
                 ('KOTAKBANK', 3.9),
                 ('HINDUNILVR', 3.5),
                 ('AXISBANK', 3.2)
-            ]
+            ],
+            'source': 'Factsheet (Static)'
         },
-        '119551': {  # HDFC Top 100 Fund
+        '119551': {
             'name': 'HDFC Top 100 Fund',
             'holdings': [
                 ('HDFCBANK', 8.1),
@@ -198,9 +369,10 @@ def scrape_mf_holdings_moneycontrol(amfi_code):
                 ('ITC', 3.8),
                 ('SBIN', 3.5),
                 ('HINDUNILVR', 3.2)
-            ]
+            ],
+            'source': 'Factsheet (Static)'
         },
-        '120503': {  # ICICI Prudential Bluechip Fund
+        '120503': {
             'name': 'ICICI Prudential Bluechip Fund',
             'holdings': [
                 ('ICICIBANK', 8.2),
@@ -213,7 +385,8 @@ def scrape_mf_holdings_moneycontrol(amfi_code):
                 ('ITC', 3.9),
                 ('HINDUNILVR', 3.6),
                 ('SBIN', 3.3)
-            ]
+            ],
+            'source': 'Factsheet (Static)'
         }
     }
     
@@ -840,7 +1013,12 @@ with tab2:
                                 
                                 if holdings_info:
                                     st.success(f"✅ Found holdings data for: **{holdings_info['name']}**")
-                                    st.caption("📅 Holdings data from latest available factsheet")
+                                    
+                                    # Show data source
+                                    if holdings_info.get('source') == 'Groww (Live)':
+                                        st.success("🌐 **Data Source:** Scraped live from Groww")
+                                    else:
+                                        st.info(f"📋 **Data Source:** {holdings_info.get('source', 'Factsheet')}")
                                     
                                     holdings_data = []
                                     
