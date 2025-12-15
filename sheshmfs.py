@@ -1011,12 +1011,91 @@ with tab2:
                                 
                                 holdings_info = scrape_mf_holdings_moneycontrol(mf_scheme.strip())
                                 
+                                # CSV Upload Option
+                                st.divider()
+                                with st.expander("📤 Or Upload Custom Holdings CSV", expanded=False):
+                                    st.markdown("""
+                                    **Upload a CSV file with holdings data:**
+                                    - Column A: Stock Tickers (without .NS, e.g., RELIANCE, TCS, INFY)
+                                    - Column B: Weight/Allocation in % (e.g., 8.5, 7.2, 6.8)
+                                    
+                                    **CSV Format Example:**
+                                    ```
+                                    Ticker,Weight
+                                    RELIANCE,8.5
+                                    TCS,7.2
+                                    HDFCBANK,6.8
+                                    INFY,5.9
+                                    ```
+                                    """)
+                                    
+                                    uploaded_file = st.file_uploader(
+                                        "Choose CSV file", 
+                                        type=['csv'],
+                                        key="holdings_csv"
+                                    )
+                                    
+                                    if uploaded_file is not None:
+                                        try:
+                                            # Read CSV
+                                            holdings_csv = pd.read_csv(uploaded_file)
+                                            
+                                            # Display preview
+                                            st.success("✅ CSV file uploaded successfully!")
+                                            st.caption("Preview of uploaded data:")
+                                            st.dataframe(holdings_csv.head(10), use_container_width=True)
+                                            
+                                            # Validate columns
+                                            if len(holdings_csv.columns) < 2:
+                                                st.error("❌ CSV must have at least 2 columns (Ticker and Weight)")
+                                            else:
+                                                # Get column names (flexible - works with any column names)
+                                                ticker_col = holdings_csv.columns[0]
+                                                weight_col = holdings_csv.columns[1]
+                                                
+                                                st.info(f"📊 Detected: Ticker column = '{ticker_col}', Weight column = '{weight_col}'")
+                                                
+                                                # Clean and validate data
+                                                holdings_csv[ticker_col] = holdings_csv[ticker_col].astype(str).str.strip().str.upper()
+                                                holdings_csv[weight_col] = pd.to_numeric(holdings_csv[weight_col], errors='coerce')
+                                                
+                                                # Remove NaN values
+                                                holdings_csv = holdings_csv.dropna()
+                                                
+                                                if holdings_csv.empty:
+                                                    st.error("❌ No valid data found in CSV")
+                                                else:
+                                                    # Create holdings info from CSV
+                                                    csv_holdings = []
+                                                    for _, row in holdings_csv.iterrows():
+                                                        ticker = row[ticker_col]
+                                                        weight = float(row[weight_col])
+                                                        if ticker and weight > 0:
+                                                            csv_holdings.append((ticker, weight))
+                                                    
+                                                    if csv_holdings:
+                                                        holdings_info = {
+                                                            'name': f'Custom Portfolio from CSV',
+                                                            'holdings': csv_holdings,
+                                                            'source': 'Uploaded CSV'
+                                                        }
+                                                        st.success(f"✅ Loaded {len(csv_holdings)} holdings from CSV")
+                                                        st.info("💡 Scroll down to see the analysis with your uploaded holdings")
+                                                    else:
+                                                        st.error("❌ No valid holdings found in CSV")
+                                        
+                                        except Exception as e:
+                                            st.error(f"❌ Error reading CSV: {str(e)}")
+                                            st.info("Please ensure your CSV has two columns: Ticker and Weight")
+                                
                                 if holdings_info:
                                     st.success(f"✅ Found holdings data for: **{holdings_info['name']}**")
                                     
                                     # Show data source
                                     if holdings_info.get('source') == 'Groww (Live)':
                                         st.success("🌐 **Data Source:** Scraped live from Groww")
+                                    elif holdings_info.get('source') == 'Uploaded CSV':
+                                        st.success("📤 **Data Source:** Your uploaded CSV file")
                                     else:
                                         st.info(f"📋 **Data Source:** {holdings_info.get('source', 'Factsheet')}")
                                     
@@ -1148,14 +1227,49 @@ with tab3:
     ### ✅ Features:
     - Real stock prices from Yahoo Finance
     - Live NAV data from AMFI India
+    - Web scraping from Groww for holdings
+    - CSV upload for custom portfolios
     - Individual stock beta calculation
     - Dynamic NAV calculation
     - Custom date ranges
+    
+    ### 📤 CSV Upload Format:
+    
+    Create a CSV file with 2 columns:
+    
+    **Column A (Ticker):** Stock symbols without .NS extension
+    **Column B (Weight):** Allocation percentage
+    
+    Example CSV:
+    ```
+    Ticker,Weight
+    RELIANCE,8.5
+    TCS,7.2
+    HDFCBANK,6.8
+    INFY,5.9
+    ICICIBANK,5.4
+    HINDUNILVR,4.8
+    ITC,4.2
+    BHARTIARTL,3.9
+    KOTAKBANK,3.5
+    SBIN,3.2
+    ```
+    
+    **Notes:**
+    - Tickers should be NSE symbols (without .NS)
+    - Weight should be in percentage (total can be less than 100%)
+    - CSV can have any column names - first column = ticker, second = weight
+    - Headers are optional
     
     ### 📝 Popular AMFI Codes:
     - 147844 - SBI Blue Chip Fund
     - 119551 - HDFC Top 100 Fund
     - 120503 - ICICI Prudential Bluechip Fund
+    
+    ### 🌐 Data Sources:
+    1. **Groww** - Live web scraping (automatic)
+    2. **CSV Upload** - Your custom data
+    3. **Factsheet** - Fallback static data
     
     ### ⚠️ Disclaimer:
     For educational purposes only. Not financial advice.
@@ -1165,5 +1279,6 @@ st.divider()
 st.markdown("""
 <div style='text-align: center; color: #666;'>
     <p><strong>Beta Calculator with Real Market Data</strong></p>
+    <p style='font-size: 0.8em;'>💡 Tip: Upload a CSV file for instant analysis of any portfolio!</p>
 </div>
 """, unsafe_allow_html=True)
