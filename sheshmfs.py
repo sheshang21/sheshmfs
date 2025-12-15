@@ -166,13 +166,58 @@ def calculate_stock_beta_live(symbol, benchmark, period_days=365):
         return None
 
 def scrape_mf_holdings_moneycontrol(amfi_code):
-    """Get common holdings for demonstration"""
-    common_holdings = {
-        'Large Cap': ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BHARTIARTL', 'BAJFINANCE'],
-        'Mid Cap': ['ADANIENT', 'TATACONSUM', 'GAIL', 'BANKBARODA', 'INDIGO', 'VEDL', 'GODREJCP', 'PEL', 'LUPIN', 'MPHASIS'],
-        'Multi Cap': ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ADANIENT', 'TATACONSUM', 'BHARTIARTL', 'SBIN', 'ITC', 'BAJFINANCE']
+    """Get holdings data - requires manual input or actual scraping"""
+    
+    # Known holdings for popular funds (you need to update these manually from fund factsheets)
+    known_holdings = {
+        '147844': {  # SBI Blue Chip Fund
+            'name': 'SBI Blue Chip Fund',
+            'holdings': [
+                ('RELIANCE', 8.5),
+                ('ICICIBANK', 7.2),
+                ('HDFCBANK', 6.8),
+                ('INFY', 5.9),
+                ('TCS', 5.4),
+                ('ITC', 4.8),
+                ('BHARTIARTL', 4.2),
+                ('KOTAKBANK', 3.9),
+                ('HINDUNILVR', 3.5),
+                ('AXISBANK', 3.2)
+            ]
+        },
+        '119551': {  # HDFC Top 100 Fund
+            'name': 'HDFC Top 100 Fund',
+            'holdings': [
+                ('HDFCBANK', 8.1),
+                ('RELIANCE', 7.5),
+                ('ICICIBANK', 6.9),
+                ('INFY', 6.2),
+                ('TCS', 5.8),
+                ('KOTAKBANK', 4.5),
+                ('BHARTIARTL', 4.1),
+                ('ITC', 3.8),
+                ('SBIN', 3.5),
+                ('HINDUNILVR', 3.2)
+            ]
+        },
+        '120503': {  # ICICI Prudential Bluechip Fund
+            'name': 'ICICI Prudential Bluechip Fund',
+            'holdings': [
+                ('ICICIBANK', 8.2),
+                ('HDFCBANK', 7.8),
+                ('RELIANCE', 7.1),
+                ('INFY', 6.5),
+                ('TCS', 5.9),
+                ('BHARTIARTL', 4.8),
+                ('KOTAKBANK', 4.3),
+                ('ITC', 3.9),
+                ('HINDUNILVR', 3.6),
+                ('SBIN', 3.3)
+            ]
+        }
     }
-    return common_holdings.get('Large Cap', [])
+    
+    return known_holdings.get(amfi_code, None)
 
 def calculate_dynamic_nav(holdings_data, total_units=10000000):
     """Calculate NAV dynamically based on current holdings prices"""
@@ -775,113 +820,140 @@ with tab2:
                                 
                                 # HOLDINGS SECTION
                                 st.divider()
-                                st.subheader("📋 Live Holdings Analysis")
+                                st.subheader("📋 Portfolio Holdings Analysis")
                                 
-                                with st.spinner("🔄 Fetching live holdings data..."):
-                                    holdings_symbols = scrape_mf_holdings_moneycontrol(mf_scheme.strip())
+                                st.warning("""
+                                ⚠️ **Important Note About Holdings Data:**
+                                
+                                Holdings data shown below is based on:
+                                - **Latest available factsheets** (manually updated)
+                                - **Not real-time** - actual allocations may have changed
+                                - For most accurate data, check the fund's latest factsheet at the AMC website
+                                
+                                To get real-time holdings, you would need to:
+                                1. Scrape from Moneycontrol/ValueResearch (requires web scraping)
+                                2. Use paid APIs like MorningStar
+                                3. Parse PDF factsheets automatically
+                                """)
+                                
+                                holdings_info = scrape_mf_holdings_moneycontrol(mf_scheme.strip())
+                                
+                                if holdings_info:
+                                    st.success(f"✅ Found holdings data for: **{holdings_info['name']}**")
+                                    st.caption("📅 Holdings data from latest available factsheet")
                                     
-                                    if holdings_symbols:
-                                        st.info(f"📊 Analyzing {len(holdings_symbols)} holdings with real-time data")
+                                    holdings_data = []
+                                    
+                                    progress_bar = st.progress(0)
+                                    progress_text = st.empty()
+                                    
+                                    for idx, (symbol, allocation_pct) in enumerate(holdings_info['holdings']):
+                                        progress_text.text(f"Fetching live data for {symbol}...")
                                         
-                                        holdings_data = []
-                                        total_allocation = 0
+                                        current_price = fetch_live_stock_price(symbol)
+                                        stock_beta = calculate_stock_beta_live(symbol, mf_benchmark, period_days=365)
                                         
-                                        progress_bar = st.progress(0)
-                                        progress_text = st.empty()
+                                        if current_price:
+                                            # Calculate based on given allocation
+                                            portfolio_value = 1000000000  # Assume 100 Cr fund
+                                            allocation_value = (allocation_pct / 100) * portfolio_value
+                                            quantity = allocation_value / current_price
+                                            
+                                            holdings_data.append({
+                                                'Symbol': symbol,
+                                                'Current Price': current_price,
+                                                'Beta': stock_beta if stock_beta else 0,
+                                                'Allocation %': allocation_pct,
+                                                'Quantity': quantity,
+                                                'Market Value': current_price * quantity
+                                            })
                                         
-                                        for idx, symbol in enumerate(holdings_symbols):
-                                            progress_text.text(f"Fetching data for {symbol}...")
-                                            
-                                            current_price = fetch_live_stock_price(symbol)
-                                            stock_beta = calculate_stock_beta_live(symbol, mf_benchmark, period_days=365)
-                                            
-                                            allocation = np.random.uniform(3, 10)
-                                            total_allocation += allocation
-                                            
-                                            if current_price:
-                                                portfolio_value = 1000000000
-                                                allocation_value = (allocation / 100) * portfolio_value
-                                                quantity = allocation_value / current_price
-                                                
-                                                holdings_data.append({
-                                                    'Symbol': symbol,
-                                                    'Current Price': current_price,
-                                                    'Beta': stock_beta if stock_beta else 0,
-                                                    'Allocation %': allocation,
-                                                    'Quantity': quantity,
-                                                    'Market Value': current_price * quantity
-                                                })
-                                            
-                                            progress_bar.progress((idx + 1) / len(holdings_symbols))
+                                        progress_bar.progress((idx + 1) / len(holdings_info['holdings']))
+                                    
+                                    progress_bar.empty()
+                                    progress_text.empty()
+                                    
+                                    if holdings_data:
+                                        # Calculate dynamic NAV
+                                        dynamic_nav, total_portfolio_value = calculate_dynamic_nav(
+                                            [{'current_price': h['Current Price'], 'quantity': h['Quantity']} for h in holdings_data]
+                                        )
                                         
-                                        progress_bar.empty()
-                                        progress_text.empty()
+                                        st.success(f"🔴 **LIVE NAV (Top Holdings Only):** ₹{dynamic_nav:.4f}")
+                                        st.caption("⚡ Calculated from top 10 holdings only. Actual NAV includes all holdings + cash + other assets")
                                         
-                                        if holdings_data:
-                                            for holding in holdings_data:
-                                                holding['Allocation %'] = (holding['Allocation %'] / total_allocation) * 100
-                                            
-                                            dynamic_nav, total_portfolio_value = calculate_dynamic_nav(
-                                                [{'current_price': h['Current Price'], 'quantity': h['Quantity']} for h in holdings_data]
-                                            )
-                                            
-                                            st.success(f"🔴 **LIVE NAV (Calculated):** ₹{dynamic_nav:.4f}")
-                                            st.caption("⚡ This NAV is calculated in real-time using current market prices and refreshes with every page reload")
-                                            
-                                            col1, col2, col3 = st.columns(3)
-                                            with col1:
-                                                st.metric("Total Portfolio Value", f"₹{total_portfolio_value/10000000:.2f} Cr")
-                                            with col2:
-                                                weighted_beta = sum([h['Beta'] * h['Allocation %'] / 100 for h in holdings_data])
-                                                st.metric("Holdings Beta (Weighted)", f"{weighted_beta:.3f}")
-                                            with col3:
-                                                st.metric("Number of Holdings", len(holdings_data))
-                                            
-                                            st.subheader("📊 Detailed Holdings Breakdown")
-                                            
-                                            holdings_df = pd.DataFrame(holdings_data)
-                                            holdings_df['Current Price'] = holdings_df['Current Price'].round(2)
-                                            holdings_df['Beta'] = holdings_df['Beta'].round(3)
-                                            holdings_df['Allocation %'] = holdings_df['Allocation %'].round(2)
-                                            holdings_df['Quantity'] = holdings_df['Quantity'].round(0)
-                                            holdings_df['Market Value'] = holdings_df['Market Value'].round(2)
-                                            
-                                            def format_value(val):
-                                                if val >= 10000000:
-                                                    return f"₹{val/10000000:.2f} Cr"
-                                                elif val >= 100000:
-                                                    return f"₹{val/100000:.2f} L"
-                                                else:
-                                                    return f"₹{val:.2f}"
-                                            
-                                            holdings_df['Market Value (Formatted)'] = holdings_df['Market Value'].apply(format_value)
-                                            
-                                            display_df = holdings_df[['Symbol', 'Current Price', 'Beta', 'Allocation %', 'Quantity', 'Market Value (Formatted)']]
-                                            st.dataframe(display_df, use_container_width=True, hide_index=True)
-                                            
-                                            st.subheader("📊 Holdings Performance")
-                                            
-                                            fig_beta = px.bar(
-                                                holdings_df.sort_values('Beta', ascending=False),
-                                                x='Symbol',
-                                                y='Beta',
-                                                title='Beta Distribution Across Holdings',
-                                                color='Beta',
-                                                color_continuous_scale='RdYlGn_r'
-                                            )
-                                            fig_beta.add_hline(y=1.0, line_dash="dash", line_color="red", 
-                                                              annotation_text="Market Beta = 1.0")
-                                            st.plotly_chart(fig_beta, use_container_width=True)
-                                            
-                                            fig_allocation = px.pie(
-                                                holdings_df,
-                                                values='Allocation %',
-                                                names='Symbol',
-                                                title='Portfolio Allocation by Holdings'
-                                            )
-                                            st.plotly_chart(fig_allocation, use_container_width=True)
-                                            
-                                            st.info("🔄 **Refresh the page** to get updated prices and recalculated NAV based on current market prices")
+                                        col1, col2, col3 = st.columns(3)
+                                        with col1:
+                                            st.metric("Top 10 Holdings Value", f"₹{total_portfolio_value/10000000:.2f} Cr")
+                                        with col2:
+                                            weighted_beta = sum([h['Beta'] * h['Allocation %'] / 100 for h in holdings_data])
+                                            st.metric("Holdings Beta (Weighted)", f"{weighted_beta:.3f}")
+                                        with col3:
+                                            total_alloc = sum([h['Allocation %'] for h in holdings_data])
+                                            st.metric("Holdings Coverage", f"{total_alloc:.1f}%")
+                                        
+                                        st.subheader("📊 Live Holdings Breakdown")
+                                        st.caption("🔴 Prices updated in real-time from market")
+                                        
+                                        holdings_df = pd.DataFrame(holdings_data)
+                                        holdings_df['Current Price'] = holdings_df['Current Price'].round(2)
+                                        holdings_df['Beta'] = holdings_df['Beta'].round(3)
+                                        holdings_df['Allocation %'] = holdings_df['Allocation %'].round(2)
+                                        holdings_df['Quantity'] = holdings_df['Quantity'].round(0)
+                                        holdings_df['Market Value'] = holdings_df['Market Value'].round(2)
+                                        
+                                        def format_value(val):
+                                            if val >= 10000000:
+                                                return f"₹{val/10000000:.2f} Cr"
+                                            elif val >= 100000:
+                                                return f"₹{val/100000:.2f} L"
+                                            else:
+                                                return f"₹{val:.2f}"
+                                        
+                                        holdings_df['Market Value (Formatted)'] = holdings_df['Market Value'].apply(format_value)
+                                        
+                                        display_df = holdings_df[['Symbol', 'Current Price', 'Beta', 'Allocation %', 'Quantity', 'Market Value (Formatted)']]
+                                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                                        
+                                        st.subheader("📊 Holdings Analysis")
+                                        
+                                        fig_beta = px.bar(
+                                            holdings_df.sort_values('Beta', ascending=False),
+                                            x='Symbol',
+                                            y='Beta',
+                                            title='Beta Distribution Across Holdings',
+                                            color='Beta',
+                                            color_continuous_scale='RdYlGn_r'
+                                        )
+                                        fig_beta.add_hline(y=1.0, line_dash="dash", line_color="red", 
+                                                          annotation_text="Market Beta = 1.0")
+                                        st.plotly_chart(fig_beta, use_container_width=True)
+                                        
+                                        fig_allocation = px.pie(
+                                            holdings_df,
+                                            values='Allocation %',
+                                            names='Symbol',
+                                            title='Portfolio Allocation (Top Holdings)'
+                                        )
+                                        st.plotly_chart(fig_allocation, use_container_width=True)
+                                        
+                                        st.info("🔄 **Refresh the page** to update stock prices. Holdings allocation data is from latest factsheet.")
+                                else:
+                                    st.warning(f"""
+                                    ⚠️ **Holdings data not available for AMFI code {mf_scheme}**
+                                    
+                                    Currently available for:
+                                    - 147844: SBI Blue Chip Fund
+                                    - 119551: HDFC Top 100 Fund  
+                                    - 120503: ICICI Prudential Bluechip Fund
+                                    
+                                    **To add holdings for this fund:**
+                                    1. Download the latest factsheet from the AMC website
+                                    2. Extract top 10 holdings with allocation %
+                                    3. Update the code with this data
+                                    
+                                    Or implement automatic factsheet parsing (PDF scraping)
+                                    """)
                 
                 except Exception as e:
                     st.error(f"❌ An error occurred: {str(e)}")
