@@ -682,29 +682,40 @@ if st.session_state.scan_results:
         )
     
     with download_col3:
-        # Excel format with multiple sheets
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            filtered_df.to_excel(writer, sheet_name='Filtered Results', index=False)
-            df.to_excel(writer, sheet_name='All Results', index=False)
+        # Excel format with multiple sheets (optional - requires openpyxl)
+        try:
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                filtered_df.to_excel(writer, sheet_name='Filtered Results', index=False)
+                df.to_excel(writer, sheet_name='All Results', index=False)
+                
+                # Summary sheet
+                summary_data = {
+                    'Metric': ['Total Scanned', 'Qualified', 'Watchlist', 'Below Par', 
+                              'Avg Score', 'Top Score', 'Scan Time'],
+                    'Value': [len(df), len(qualified), len(watchlist), len(below_par),
+                             f"{df['Score'].mean():.1f}", df['Score'].max(),
+                             scan_time.strftime('%Y-%m-%d %H:%M:%S')]
+                }
+                pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
             
-            # Summary sheet
-            summary_data = {
-                'Metric': ['Total Scanned', 'Qualified', 'Watchlist', 'Below Par', 
-                          'Avg Score', 'Top Score', 'Scan Time'],
-                'Value': [len(df), len(qualified), len(watchlist), len(below_par),
-                         f"{df['Score'].mean():.1f}", df['Score'].max(),
-                         scan_time.strftime('%Y-%m-%d %H:%M:%S')]
-            }
-            pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
-        
-        st.download_button(
-            label="📥 Download Excel (Multi-sheet)",
-            data=buffer.getvalue(),
-            file_name=f"stock_scout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+            st.download_button(
+                label="📥 Download Excel (Multi-sheet)",
+                data=buffer.getvalue(),
+                file_name=f"stock_scout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        except ImportError:
+            st.warning("Excel export requires openpyxl. Install with: pip install openpyxl")
+            # Fallback to CSV
+            st.download_button(
+                label="📥 Download Backup CSV",
+                data=complete_csv,
+                file_name=f"stock_scout_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
 
 else:
     # Initial state - no scan run yet
