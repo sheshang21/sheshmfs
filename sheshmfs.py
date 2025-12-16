@@ -377,19 +377,19 @@ with tab1:
                           'Target (+₹20)', '% to ₹20 Target', 'Probability Score', 
                           'RSI', 'Volume Ratio', '5D Momentum (%)', 'Sector']
             
+            # Format the dataframe for display
+            df_display = df[display_cols].copy()
+            df_display['Current Price'] = df_display['Current Price'].apply(lambda x: f'₹{x:.2f}')
+            df_display['Target (+₹20)'] = df_display['Target (+₹20)'].apply(lambda x: f'₹{x:.2f}')
+            df_display['Change (%)'] = df_display['Change (%)'].apply(lambda x: f'{x:.2f}%')
+            df_display['% to ₹20 Target'] = df_display['% to ₹20 Target'].apply(lambda x: f'{x:.2f}%')
+            df_display['Probability Score'] = df_display['Probability Score'].apply(lambda x: f'{x:.1f}')
+            df_display['RSI'] = df_display['RSI'].apply(lambda x: f'{x:.1f}')
+            df_display['Volume Ratio'] = df_display['Volume Ratio'].apply(lambda x: f'{x:.2f}x')
+            df_display['5D Momentum (%)'] = df_display['5D Momentum (%)'].apply(lambda x: f'{x:.2f}%')
+            
             st.dataframe(
-                df[display_cols].style.background_gradient(
-                    subset=['Probability Score'], cmap='RdYlGn', vmin=0, vmax=100
-                ).format({
-                    'Current Price': '₹{:.2f}',
-                    'Target (+₹20)': '₹{:.2f}',
-                    'Change (%)': '{:.2f}%',
-                    '% to ₹20 Target': '{:.2f}%',
-                    'Probability Score': '{:.1f}',
-                    'RSI': '{:.1f}',
-                    'Volume Ratio': '{:.2f}x',
-                    '5D Momentum (%)': '{:.2f}%'
-                }),
+                df_display,
                 use_container_width=True,
                 height=400
             )
@@ -493,6 +493,4 @@ st.markdown("""
 <div style='text-align: center; color: #666; padding: 20px;'>
     <p><strong>Disclaimer:</strong> This tool is for educational purposes only. Not financial advice. 
     Always do your own research and consult with a qualified financial advisor before making investment decisions.</p>
-    <p>Data source: Yahoo Finance | Built with Streamlit</p>
-</div>
-""", unsafe_allow_html=True)
+    <p>Data source: Yahoo Finance | Built with S
