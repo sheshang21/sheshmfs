@@ -489,8 +489,8 @@ with tab2:
 
 # Footer
 st.divider()
-st.markdown("""
+footer_html = """
 <div style='text-align: center; color: #666; padding: 20px;'>
     <p><strong>Disclaimer:</strong> This tool is for educational purposes only. Not financial advice. 
     Always do your own research and consult with a qualified financial advisor before making investment decisions.</p>
-    <p>Data source: Yahoo Finance | Built with S
+    <p>Data source: Yahoo Finance | Built with
