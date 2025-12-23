@@ -2842,7 +2842,7 @@ if scan_mode == "Quick Scan (100 stocks)":
 elif scan_mode == "Medium Scan (200 stocks)":
     stocks_to_scan = NSE_STOCKS[:200]
 elif scan_mode == "Full Scan (500+ stocks)":
-    stocks_to_scan = NSE_STOCKS[:500]
+    stocks_to_scan = NSE_STOCKS[:2216]
 else:
     custom_input = st.sidebar.text_area("Enter NSE symbols (one per line)", 
         "RELIANCE\nTCS\nINFY\nHDFCBANK\nDIXON", height=150)
